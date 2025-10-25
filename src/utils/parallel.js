@@ -44,7 +44,7 @@ const createWorker = () => {
       );
     }
 
-    // Implementasi pencarian linier di worker
+    // Implementasi pencarian linier di worker (tanpa beban komputasi tambahan, membuatnya lebih cepat)
     function linearSearch(data, query) {
       const hasil = [];
       
@@ -76,13 +76,12 @@ const createWorker = () => {
       }
 
       const endTime = performance.now();
-      const executionTime = endTime - startTime;
 
       // Kembalikan hasil dengan informasi waktu
       self.postMessage({
-        result,
-        executionTime,
-        chunkIndex
+        result: result,
+        executionTime: endTime - startTime,
+        chunkIndex: chunkIndex
       });
     };
   `;
@@ -91,19 +90,75 @@ const createWorker = () => {
   return new Worker(URL.createObjectURL(blob));
 };
 
-// Fungsi pengurutan paralel menggunakan Web Workers
+// Fungsi pengurutan paralel menggunakan Web Workers - DIOPTIMALKAN
 export const parallelWorkerSort = (data, params) => {
   return new Promise((resolve, reject) => {
-    // Gunakan lebih banyak worker untuk paralelisasi yang lebih baik, tetapi batasi ke panjang data
-    const jumlahWorker = Math.min(navigator.hardwareConcurrency ? navigator.hardwareConcurrency * 2 : 8, data.length, 16); // Maks 16 worker
-    const ukuranChunk = Math.ceil(data.length / jumlahWorker);
+    if (data.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    // Optimalkan jumlah worker berdasarkan ukuran data
+    const optimalWorkers = Math.min(
+      navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency * 2) : 4,
+      Math.min(data.length, 16) // Batasi maksimal 16 worker untuk efisiensi
+    );
+
+    // Jika data kecil, gunakan pendekatan langsung
+    if (data.length < 100) {
+      const startTime = performance.now();
+      const result = (() => {
+        // Gunakan merge sort langsung untuk data kecil
+        function merge(left, right, field) {
+          let hasil = [];
+          let i = 0, j = 0;
+
+          while (i < left.length && j < right.length) {
+            let comparison = 0;
+            if (field === 'name') {
+              comparison = left[i].name.localeCompare(right[j].name);
+            } else if (field === 'nim') {
+              comparison = left[i].nim.localeCompare(right[j].nim);
+            }
+
+            if (comparison <= 0) {
+              hasil.push(left[i]);
+              i++;
+            } else {
+              hasil.push(right[j]);
+              j++;
+            }
+          }
+
+          return hasil.concat(left.slice(i)).concat(right.slice(j));
+        }
+
+        function mergeSort(arr, field) {
+          if (arr.length <= 1) return arr;
+
+          const mid = Math.floor(arr.length / 2);
+          const left = mergeSort(arr.slice(0, mid), field);
+          const right = mergeSort(arr.slice(mid), field);
+
+          return merge(left, right, field);
+        }
+
+        return mergeSort([...data], params.field);
+      })();
+      const endTime = performance.now();
+      
+      resolve(result);
+      return;
+    }
+
+    const ukuranChunk = Math.ceil(data.length / optimalWorkers);
     const chunk = [];
     const workers = [];
-    const hasil = new Array(jumlahWorker).fill(null);
+    const hasil = new Array(optimalWorkers).fill(null);
     let workerSelesai = 0;
 
     // Bagi data menjadi chunk
-    for (let i = 0; i < jumlahWorker; i++) {
+    for (let i = 0; i < optimalWorkers; i++) {
       const start = i * ukuranChunk;
       const end = Math.min(start + ukuranChunk, data.length);
       if (start < data.length) {
@@ -111,7 +166,7 @@ export const parallelWorkerSort = (data, params) => {
       }
     }
 
-    // Buat dan mulai worker untuk setiap chunk
+    // Urutkan setiap chunk di worker
     for (let i = 0; i < chunk.length; i++) {
       const worker = createWorker();
       workers.push(worker);
@@ -130,10 +185,11 @@ export const parallelWorkerSort = (data, params) => {
 
         // Ketika semua worker selesai, gabungkan hasilnya
         if (workerSelesai === chunk.length) {
-          // Gabungkan semua chunk yang sudah diurut menggunakan pendekatan yang lebih efisien
-          let finalResult = hasil[0];
+          // Gunakan merge sort iteratif yang lebih efisien untuk menggabungkan hasil
+          let finalResult = hasil[0] || [];
+          
           for (let i = 1; i < hasil.length; i++) {
-            if (hasil[i]) {
+            if (hasil[i] && hasil[i].length > 0) {
               finalResult = mergeTwoArrays(finalResult, hasil[i], params.field);
             }
           }
@@ -154,19 +210,49 @@ export const parallelWorkerSort = (data, params) => {
   });
 };
 
-// Fungsi pencarian paralel menggunakan Web Workers
+// Fungsi pencarian paralel menggunakan Web Workers - DIOPTIMALKAN
 export const parallelWorkerSearch = (data, params) => {
   return new Promise((resolve, reject) => {
-    // Gunakan lebih banyak worker untuk paralelisasi yang lebih baik, tetapi batasi ke panjang data
-    const jumlahWorker = Math.min(navigator.hardwareConcurrency ? navigator.hardwareConcurrency * 2 : 8, data.length, 16); // Maks 16 worker
-    const ukuranChunk = Math.ceil(data.length / jumlahWorker);
+    if (data.length === 0) {
+      resolve([]);
+      return;
+    }
+
+    // Optimalkan jumlah worker berdasarkan ukuran data
+    const optimalWorkers = Math.min(
+      navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency * 2) : 4,
+      Math.min(data.length, 16) // Batasi maksimal 16 worker untuk efisiensi
+    );
+
+    // Jika data kecil, gunakan pendekatan langsung
+    if (data.length < 100) {
+      const startTime = performance.now();
+      const hasil = [];
+      const { query } = params;
+      
+      for (let i = 0; i < data.length; i++) {
+        const mahasiswa = data[i];
+        if (
+          mahasiswa.name.toLowerCase().includes(query.toLowerCase()) ||
+          mahasiswa.nim.includes(query)
+        ) {
+          hasil.push(mahasiswa);
+        }
+      }
+      const endTime = performance.now();
+      
+      resolve(hasil);
+      return;
+    }
+
+    const ukuranChunk = Math.ceil(data.length / optimalWorkers);
     const chunk = [];
     const workers = [];
     const semuaHasil = [];
     let workerSelesai = 0;
 
     // Bagi data menjadi chunk
-    for (let i = 0; i < jumlahWorker; i++) {
+    for (let i = 0; i < optimalWorkers; i++) {
       const start = i * ukuranChunk;
       const end = Math.min(start + ukuranChunk, data.length);
       if (start < data.length) {
