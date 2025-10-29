@@ -1,96 +1,12 @@
-// Fungsi untuk membuat Web Worker untuk pemrosesan paralel
-const createWorker = () => {
-  const workerCode = `
-    // Fungsi merge untuk merge sort di worker
-    function merge(kiri, kanan, field) {
-      let hasil = [];
-      let indeksKiri = 0;
-      let indeksKanan = 0;
+import { detectCpuCores, calculateOptimalWorkers, distributeData, mergeSortedArrays } from './cpuDetection';
 
-      while (indeksKiri < kiri.length && indeksKanan < kanan.length) {
-        let comparison = 0;
-        if (field === 'name') {
-          comparison = kiri[indeksKiri].name.localeCompare(kanan[indeksKanan].name);
-        } else if (field === 'nim') {
-          comparison = kiri[indeksKiri].nim.localeCompare(kanan[indeksKanan].nim);
-        }
-
-        if (comparison <= 0) {
-          hasil.push(kiri[indeksKiri]);
-          indeksKiri++;
-        } else {
-          hasil.push(kanan[indeksKanan]);
-          indeksKanan++;
-        }
-      }
-
-      return hasil.concat(kiri.slice(indeksKiri)).concat(kanan.slice(indeksKanan));
-    }
-
-    // Implementasi merge sort di worker
-    function mergeSort(data, field) {
-      if (data.length <= 1) {
-        return data;
-      }
-
-      const tengah = Math.floor(data.length / 2);
-      const kiri = data.slice(0, tengah);
-      const kanan = data.slice(tengah);
-
-      return merge(
-        mergeSort(kiri, field),
-        mergeSort(kanan, field),
-        field
-      );
-    }
-
-    // Implementasi pencarian linier di worker (tanpa beban komputasi tambahan, membuatnya lebih cepat)
-    function linearSearch(data, query) {
-      const hasil = [];
-      
-      for (let i = 0; i < data.length; i++) {
-        const mahasiswa = data[i];
-        // Cek apakah kueri cocok dengan nama atau NIM
-        if (
-          mahasiswa.name.toLowerCase().includes(query.toLowerCase()) ||
-          mahasiswa.nim.includes(query)
-        ) {
-          hasil.push(mahasiswa);
-        }
-      }
-      
-      return hasil;
-    }
-
-    self.onmessage = function(e) {
-      const { operation, data, params, chunkIndex } = e.data;
-      let result;
-
-      // Mulai pengukuran waktu di dalam worker untuk mengecualikan overhead postMessage
-      const startTime = performance.now();
-
-      if (operation === 'sort') {
-        result = mergeSort(data, params.field);
-      } else if (operation === 'search') {
-        result = linearSearch(data, params.query);
-      }
-
-      const endTime = performance.now();
-
-      // Kembalikan hasil dengan informasi waktu
-      self.postMessage({
-        result: result,
-        executionTime: endTime - startTime,
-        chunkIndex: chunkIndex
-      });
-    };
-  `;
-
-  const blob = new Blob([workerCode], { type: 'application/javascript' });
-  return new Worker(URL.createObjectURL(blob));
+// Get the absolute path to the worker file
+const getWorkerPath = () => {
+  // In Vite, we need to import the worker file to get the correct path
+  return new URL('../workers/worker.js', import.meta.url).href;
 };
 
-// Fungsi pengurutan paralel menggunakan Web Workers - DIOPTIMALKAN
+// Optimized parallel sort function with dynamic CPU core detection
 export const parallelWorkerSort = (data, params) => {
   return new Promise((resolve, reject) => {
     if (data.length === 0) {
@@ -98,103 +14,49 @@ export const parallelWorkerSort = (data, params) => {
       return;
     }
 
-    // Optimalkan jumlah worker berdasarkan ukuran data
-    const optimalWorkers = Math.min(
-      navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency * 2) : 4,
-      Math.min(data.length, 16) // Batasi maksimal 16 worker untuk efisiensi
-    );
-
-    // Jika data kecil, gunakan pendekatan langsung
-    if (data.length < 100) {
-      const startTime = performance.now();
-      const result = (() => {
-        // Gunakan merge sort langsung untuk data kecil
-        function merge(left, right, field) {
-          let hasil = [];
-          let i = 0, j = 0;
-
-          while (i < left.length && j < right.length) {
-            let comparison = 0;
-            if (field === 'name') {
-              comparison = left[i].name.localeCompare(right[j].name);
-            } else if (field === 'nim') {
-              comparison = left[i].nim.localeCompare(right[j].nim);
-            }
-
-            if (comparison <= 0) {
-              hasil.push(left[i]);
-              i++;
-            } else {
-              hasil.push(right[j]);
-              j++;
-            }
-          }
-
-          return hasil.concat(left.slice(i)).concat(right.slice(j));
-        }
-
-        function mergeSort(arr, field) {
-          if (arr.length <= 1) return arr;
-
-          const mid = Math.floor(arr.length / 2);
-          const left = mergeSort(arr.slice(0, mid), field);
-          const right = mergeSort(arr.slice(mid), field);
-
-          return merge(left, right, field);
-        }
-
-        return mergeSort([...data], params.field);
-      })();
-      const endTime = performance.now();
-      
-      resolve(result);
+    // Use enhanced CPU detection to determine optimal number of workers
+    const numWorkers = calculateOptimalWorkers(data.length);
+    
+    // For small datasets, use sequential processing to avoid overhead
+    if (data.length < 1000 || numWorkers === 1) {
+      import('./sequential').then(({ sequentialSort }) => {
+        resolve(sequentialSort(data, params));
+      }).catch(reject);
       return;
     }
 
-    const ukuranChunk = Math.ceil(data.length / optimalWorkers);
-    const chunk = [];
+    const chunks = distributeData(data, numWorkers);
     const workers = [];
-    const hasil = new Array(optimalWorkers).fill(null);
-    let workerSelesai = 0;
+    let completed = 0;
+    const results = new Array(chunks.length);
 
-    // Bagi data menjadi chunk
-    for (let i = 0; i < optimalWorkers; i++) {
-      const start = i * ukuranChunk;
-      const end = Math.min(start + ukuranChunk, data.length);
-      if (start < data.length) {
-        chunk.push(data.slice(start, end));
-      }
-    }
-
-    // Urutkan setiap chunk di worker
-    for (let i = 0; i < chunk.length; i++) {
-      const worker = createWorker();
+    // Process each chunk in a worker
+    for (let i = 0; i < chunks.length; i++) {
+      const worker = new Worker(getWorkerPath());
       workers.push(worker);
 
       worker.postMessage({
         operation: 'sort',
-        data: chunk[i],
-        params,
-        chunkIndex: i
+        data: chunks[i],
+        params: params,
+        chunkIndex: i,
+        operationId: Date.now() + Math.random() // Unique ID for this operation
       });
 
       worker.onmessage = (e) => {
-        const { result, executionTime, chunkIndex } = e.data;
-        hasil[chunkIndex] = result;
-        workerSelesai++;
+        results[e.data.chunkIndex] = e.data.result;
+        completed++;
 
-        // Ketika semua worker selesai, gabungkan hasilnya
-        if (workerSelesai === chunk.length) {
-          // Gunakan merge sort iteratif yang lebih efisien untuk menggabungkan hasil
-          let finalResult = hasil[0] || [];
-          
-          for (let i = 1; i < hasil.length; i++) {
-            if (hasil[i] && hasil[i].length > 0) {
-              finalResult = mergeTwoArrays(finalResult, hasil[i], params.field);
+        if (completed === chunks.length) {
+          // Merge all sorted chunks efficiently
+          let finalResult = results[0] || [];
+          for (let j = 1; j < results.length; j++) {
+            if (results[j]) {
+              finalResult = mergeSortedArrays(finalResult, results[j], params.field);
             }
           }
 
-          // Bersihkan worker
+          // Clean up workers
           workers.forEach(w => w.terminate());
 
           resolve(finalResult);
@@ -203,14 +65,14 @@ export const parallelWorkerSort = (data, params) => {
 
       worker.onerror = (error) => {
         console.error('Worker error:', error);
-        reject(error);
         workers.forEach(w => w.terminate());
+        reject(error);
       };
     }
   });
 };
 
-// Fungsi pencarian paralel menggunakan Web Workers - DIOPTIMALKAN
+// Optimized parallel search function with dynamic CPU core detection
 export const parallelWorkerSearch = (data, params) => {
   return new Promise((resolve, reject) => {
     if (data.length === 0) {
@@ -218,118 +80,64 @@ export const parallelWorkerSearch = (data, params) => {
       return;
     }
 
-    // Optimalkan jumlah worker berdasarkan ukuran data
-    const optimalWorkers = Math.min(
-      navigator.hardwareConcurrency ? Math.max(2, navigator.hardwareConcurrency * 2) : 4,
-      Math.min(data.length, 16) // Batasi maksimal 16 worker untuk efisiensi
-    );
-
-    // Jika data kecil, gunakan pendekatan langsung
-    if (data.length < 100) {
-      const startTime = performance.now();
-      const hasil = [];
-      const { query } = params;
-      
-      for (let i = 0; i < data.length; i++) {
-        const mahasiswa = data[i];
-        if (
-          mahasiswa.name.toLowerCase().includes(query.toLowerCase()) ||
-          mahasiswa.nim.includes(query)
-        ) {
-          hasil.push(mahasiswa);
-        }
-      }
-      const endTime = performance.now();
-      
-      resolve(hasil);
+    // Use enhanced CPU detection to determine optimal number of workers
+    const numWorkers = calculateOptimalWorkers(data.length);
+    
+    // For small datasets, use sequential processing to avoid overhead
+    if (data.length < 1000 || numWorkers === 1) {
+      import('./sequential').then(({ sequentialSearch }) => {
+        resolve(sequentialSearch(data, params));
+      }).catch(reject);
       return;
     }
 
-    const ukuranChunk = Math.ceil(data.length / optimalWorkers);
-    const chunk = [];
+    const chunks = distributeData(data, numWorkers);
     const workers = [];
-    const semuaHasil = [];
-    let workerSelesai = 0;
+    let completed = 0;
+    const allResults = [];
 
-    // Bagi data menjadi chunk
-    for (let i = 0; i < optimalWorkers; i++) {
-      const start = i * ukuranChunk;
-      const end = Math.min(start + ukuranChunk, data.length);
-      if (start < data.length) {
-        chunk.push(data.slice(start, end));
-      }
-    }
-
-    // Buat dan mulai worker untuk setiap chunk
-    for (let i = 0; i < chunk.length; i++) {
-      const worker = createWorker();
+    // Process each chunk in a worker
+    for (let i = 0; i < chunks.length; i++) {
+      const worker = new Worker(getWorkerPath());
       workers.push(worker);
 
       worker.postMessage({
         operation: 'search',
-        data: chunk[i],
-        params,
-        chunkIndex: i
+        data: chunks[i],
+        params: params,
+        chunkIndex: i,
+        operationId: Date.now() + Math.random() // Unique ID for this operation
       });
 
       worker.onmessage = (e) => {
-        const { result, executionTime, chunkIndex } = e.data;
-        semuaHasil.push(...result);
-        workerSelesai++;
+        allResults.push(...e.data.result);
+        completed++;
 
-        // Ketika semua worker selesai, kembalikan hasil gabungan
-        if (workerSelesai === chunk.length) {
-          // Bersihkan worker
+        if (completed === chunks.length) {
+          // Clean up workers
           workers.forEach(w => w.terminate());
 
-          resolve(semuaHasil);
+          resolve(allResults);
         }
       };
 
       worker.onerror = (error) => {
         console.error('Worker error:', error);
-        reject(error);
         workers.forEach(w => w.terminate());
+        reject(error);
       };
     }
   });
 };
 
-// Fungsi merge untuk menggabungkan hasil yang sudah diurutkan
-const mergeChunks = (chunk, field) => {
-  if (chunk.length === 0) return [];
-  if (chunk.length === 1) return chunk[0];
+// Function to get CPU information for display
+export const getCpuInfo = () => {
+  const cpuCores = detectCpuCores();
+  const optimalWorkers = calculateOptimalWorkers(10000); // Example with 10k items
   
-  let hasil = chunk[0];
-  for (let i = 1; i < chunk.length; i++) {
-    hasil = mergeTwoArrays(hasil, chunk[i], field);
-  }
-  
-  return hasil;
-};
-
-// Fungsi merge untuk menggabungkan dua array yang sudah diurutkan
-const mergeTwoArrays = (kiri, kanan, field) => {
-  let hasil = [];
-  let indeksKiri = 0;
-  let indeksKanan = 0;
-
-  while (indeksKiri < kiri.length && indeksKanan < kanan.length) {
-    let comparison = 0;
-    if (field === 'name') {
-      comparison = kiri[indeksKiri].name.localeCompare(kanan[indeksKanan].name);
-    } else if (field === 'nim') {
-      comparison = kiri[indeksKiri].nim.localeCompare(kanan[indeksKanan].nim);
-    }
-
-    if (comparison <= 0) {
-      hasil.push(kiri[indeksKiri]);
-      indeksKiri++;
-    } else {
-      hasil.push(kanan[indeksKanan]);
-      indeksKanan++;
-    }
-  }
-
-  return hasil.concat(kiri.slice(indeksKiri)).concat(kanan.slice(indeksKanan));
+  return {
+    cores: cpuCores,
+    optimalWorkers: optimalWorkers,
+    info: `CPU detected: ${cpuCores} cores, optimal workers for large datasets: ${optimalWorkers}`
+  };
 };

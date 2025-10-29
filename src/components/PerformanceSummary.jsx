@@ -1,9 +1,13 @@
 import React from 'react';
 
 const PerformanceSummary = ({ hasil }) => {
-  // Check if we have both sequential and parallel results for both operations
+  // Check if we have results for both operations
   const hasSortResults = hasil.sort && hasil.sort.sequential && hasil.sort.parallel;
   const hasSearchResults = hasil.search && hasil.search.sequential && hasil.search.parallel;
+  
+  // Also check for smart results
+  const hasSortSmartResults = hasil.sort && hasil.sort.smart;
+  const hasSearchSmartResults = hasil.search && hasil.search.smart;
   
   // Calculate metrics if we have complete data
   let sortMetrics = null;
@@ -63,21 +67,29 @@ const PerformanceSummary = ({ hasil }) => {
           {hasSortResults ? (
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-300">Kecepatan Paralel:</span>
-                <span className="font-medium text-green-600 dark:text-green-400">
-                  {sortMetrics.speedup.toFixed(2)}x lebih cepat
+                <span className="text-gray-600 dark:text-gray-300">Sequential:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  {formatWaktu(hasil.sort.sequential.time)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-300">Waktu yang Dihemat:</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  {formatWaktu(sortMetrics.timeSaved)}
+                <span className="text-gray-600 dark:text-gray-300">Parallel:</span>
+                <span className="font-medium text-green-600 dark:text-green-400">
+                  {formatWaktu(hasil.sort.parallel.time)}
                 </span>
               </div>
+              {hasSortSmartResults && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Smart:</span>
+                  <span className={`font-medium ${hasil.sort.smart.time < Math.min(hasil.sort.sequential.time, hasil.sort.parallel.time) ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                    {formatWaktu(hasil.sort.smart.time)}
+                  </span>
+                </div>
+              )}
               <div className="pt-2">
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div 
-                    className={`h-2 rounded-full ${sortMetrics.isFaster ? 'bg-green-500' : 'bg-red-500'}`}
+                    className="h-2 rounded-full bg-green-500"
                     style={{ width: `${Math.min((hasil.sort.parallel.time/hasil.sort.sequential.time) * 100, 100)}%` }}
                   ></div>
                 </div>
@@ -85,6 +97,12 @@ const PerformanceSummary = ({ hasil }) => {
                   <span>Paralel</span>
                   <span>Berurutan</span>
                 </div>
+              </div>
+              <div className="mt-3">
+                <span className="text-gray-600 dark:text-gray-300">Kecepatan Paralel:</span>
+                <span className="font-medium text-green-600 dark:text-green-400 ml-2">
+                  {sortMetrics.speedup.toFixed(2)}x lebih cepat
+                </span>
               </div>
             </div>
           ) : (
@@ -104,21 +122,29 @@ const PerformanceSummary = ({ hasil }) => {
           {hasSearchResults ? (
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-300">Kecepatan Paralel:</span>
-                <span className="font-medium text-green-600 dark:text-green-400">
-                  {searchMetrics.speedup.toFixed(2)}x lebih cepat
+                <span className="text-gray-600 dark:text-gray-300">Sequential:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  {formatWaktu(hasil.search.sequential.time)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-300">Waktu yang Dihemat:</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  {formatWaktu(searchMetrics.timeSaved)}
+                <span className="text-gray-600 dark:text-gray-300">Parallel:</span>
+                <span className="font-medium text-green-600 dark:text-green-400">
+                  {formatWaktu(hasil.search.parallel.time)}
                 </span>
               </div>
+              {hasSearchSmartResults && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">Smart:</span>
+                  <span className={`font-medium ${hasil.search.smart.time < Math.min(hasil.search.sequential.time, hasil.search.parallel.time) ? 'text-orange-600 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                    {formatWaktu(hasil.search.smart.time)}
+                  </span>
+                </div>
+              )}
               <div className="pt-2">
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div 
-                    className={`h-2 rounded-full ${searchMetrics.isFaster ? 'bg-green-500' : 'bg-red-500'}`}
+                    className="h-2 rounded-full bg-purple-500"
                     style={{ width: `${Math.min((hasil.search.parallel.time/hasil.search.sequential.time) * 100, 100)}%` }}
                   ></div>
                 </div>
@@ -126,6 +152,12 @@ const PerformanceSummary = ({ hasil }) => {
                   <span>Paralel</span>
                   <span>Berurutan</span>
                 </div>
+              </div>
+              <div className="mt-3">
+                <span className="text-gray-600 dark:text-gray-300">Kecepatan Paralel:</span>
+                <span className="font-medium text-green-600 dark:text-green-400 ml-2">
+                  {searchMetrics.speedup.toFixed(2)}x lebih cepat
+                </span>
               </div>
             </div>
           ) : (
@@ -140,6 +172,7 @@ const PerformanceSummary = ({ hasil }) => {
       <div className="mt-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
         <h4 className="font-semibold text-indigo-800 dark:text-indigo-200 mb-2">Insight Keseluruhan</h4>
         <p className="text-sm text-indigo-700 dark:text-indigo-300">
+          Mode Smart otomatis memilih pendekatan terbaik berdasarkan ukuran data.
           Komputasi paralel memungkinkan pembagian beban kerja ke banyak thread/prosesor,
           sehingga operasi yang intensif komputasi dapat diselesaikan jauh lebih cepat.
           Efek ini lebih terasa pada dataset yang lebih besar karena overhead komunikasi

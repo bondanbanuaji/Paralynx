@@ -1,18 +1,13 @@
-// Ini adalah file placeholder untuk cocok dengan struktur proyek yang diharapkan
-// Kode worker sebenarnya diimplementasikan sebaris di file parallel.js untuk kompatibilitas yang lebih baik dengan Vite
-
-// Jika Anda lebih suka menggunakan file worker eksternal, Anda dapat membuka komentar dan menggunakan ini:
-
-/*
+// Web Worker for parallel processing operations
 self.onmessage = function(e) {
-  const { operation, data, params, chunkIndex } = e.data;
+  const { operation, data, params, chunkIndex, operationId } = e.data;
   let result;
 
   // Mulai pengukuran waktu di dalam worker untuk mengecualikan overhead postMessage
   const startTime = performance.now();
 
   if (operation === 'sort') {
-    result = mergeSort(data, params.field);
+    result = quickSort([...data], params.field);
   } else if (operation === 'search') {
     result = linearSearch(data, params.query);
   }
@@ -24,34 +19,71 @@ self.onmessage = function(e) {
   self.postMessage({
     result,
     executionTime,
-    chunkIndex
+    chunkIndex,
+    operationId
   });
 };
 
-// Fungsi merge untuk merge sort
-function merge(kiri, kanan, field) {
-  let hasil = [];
-  let indeksKiri = 0;
-  let indeksKanan = 0;
+// Quick sort implementation for workers
+function quickSort(arr, field, low = 0, high = arr.length - 1) {
+  if (low < high) {
+    const pivotIndex = partition(arr, field, low, high);
+    quickSort(arr, field, low, pivotIndex - 1);
+    quickSort(arr, field, pivotIndex + 1, high);
+  }
+  return arr;
+}
 
-  while (indeksKiri < kiri.length && indeksKanan < kanan.length) {
+function partition(arr, field, low, high) {
+  const pivot = arr[high];
+  let i = low - 1;
+
+  for (let j = low; j < high; j++) {
     let comparison = 0;
     if (field === 'name') {
-      comparison = kiri[indeksKiri].name.localeCompare(kanan[indeksKanan].name);
+      comparison = arr[j].name.localeCompare(pivot.name);
     } else if (field === 'nim') {
-      comparison = kiri[indeksKiri].nim.localeCompare(kanan[indeksKanan].nim);
+      comparison = arr[j].nim.localeCompare(pivot.nim);
+    } else if (field === 'nilai') {
+      comparison = arr[j].nilai - pivot.nilai;
     }
 
     if (comparison <= 0) {
-      hasil.push(kiri[indeksKiri]);
-      indeksKiri++;
-    } else {
-      hasil.push(kanan[indeksKanan]);
-      indeksKanan++;
+      i++;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
   }
 
-  return hasil.concat(kiri.slice(indeksKiri)).concat(kanan.slice(indeksKanan));
+  [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
+  return i + 1;
+}
+
+// Fungsi merge untuk merge sort
+function merge(left, right, field) {
+  let result = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+
+  while (leftIndex < left.length && rightIndex < right.length) {
+    let comparison = 0;
+    if (field === 'name') {
+      comparison = left[leftIndex].name.localeCompare(right[rightIndex].name);
+    } else if (field === 'nim') {
+      comparison = left[leftIndex].nim.localeCompare(right[rightIndex].nim);
+    } else if (field === 'nilai') {
+      comparison = left[leftIndex].nilai - right[rightIndex].nilai;
+    }
+
+    if (comparison <= 0) {
+      result.push(left[leftIndex]);
+      leftIndex++;
+    } else {
+      result.push(right[rightIndex]);
+      rightIndex++;
+    }
+  }
+
+  return result.concat(left.slice(leftIndex)).concat(right.slice(rightIndex));
 }
 
 // Implementasi merge sort
@@ -60,32 +92,32 @@ function mergeSort(data, field) {
     return data;
   }
 
-  const tengah = Math.floor(data.length / 2);
-  const kiri = data.slice(0, tengah);
-  const kanan = data.slice(tengah);
+  const middle = Math.floor(data.length / 2);
+  const left = data.slice(0, middle);
+  const right = data.slice(middle);
 
   return merge(
-    mergeSort(kiri, field),
-    mergeSort(kanan, field),
+    mergeSort(left, field),
+    mergeSort(right, field),
     field
   );
 }
 
 // Implementasi pencarian linier
 function linearSearch(data, query) {
-  const hasil = [];
+  const results = [];
   
   for (let i = 0; i < data.length; i++) {
-    const mahasiswa = data[i];
-    // Cek apakah kueri cocok dengan nama atau NIM
+    const student = data[i];
+    // Cek apakah kueri cocok dengan nama, NIM, atau nilai
     if (
-      mahasiswa.name.toLowerCase().includes(query.toLowerCase()) ||
-      mahasiswa.nim.includes(query)
+      student.name.toLowerCase().includes(query.toLowerCase()) ||
+      student.nim.includes(query) ||
+      (student.nilai !== undefined && student.nilai.toString().includes(query))
     ) {
-      hasil.push(mahasiswa);
+      results.push(student);
     }
   }
   
-  return hasil;
+  return results;
 }
-*/

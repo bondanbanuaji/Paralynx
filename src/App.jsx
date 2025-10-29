@@ -3,9 +3,11 @@ import Controls from './components/Controls';
 import DataTable from './components/DataTable';
 import ResultPanel from './components/ResultPanel';
 import PerformanceSummary from './components/PerformanceSummary';
+import SystemInfo from './components/SystemInfo';
 import { generateStudentData } from './utils/generateData';
 import { sequentialSort, sequentialSearch, sequentialSortAsync, sequentialSearchAsync } from './utils/sequential';
-import { parallelWorkerSort, parallelWorkerSearch } from './utils/parallel';
+import { parallelWorkerSort, parallelWorkerSearch, getCpuInfo } from './utils/parallel';
+import { smartSort, smartSearch } from './utils/smartProcessing';
 
 function App() {
   const [mahasiswa, setMahasiswa] = useState([]);
@@ -39,15 +41,18 @@ function App() {
 
   const handleGenerateData = (jumlah) => {
     setSedangMemuat(true);
-    setTimeout(() => {
-      const data = generateStudentData(jumlah);
-      setMahasiswa(data);
-      setHasil({ sort: null, search: null });
-      setSedangMemuat(false);
-    }, 100); // Delay kecil untuk simulasi proses
+    // Use a more efficient approach for generating large datasets
+    const startTime = performance.now();
+    const data = generateStudentData(jumlah);
+    const generationTime = performance.now() - startTime;
+    console.log(`Data generation took ${generationTime}ms for ${jumlah} items`);
+    
+    setMahasiswa(data);
+    setHasil({ sort: null, search: null });
+    setSedangMemuat(false);
   };
 
-  // 1. Search Sequential - DIOPTIMALKAN untuk mencegah blocking UI dengan algoritma yielding
+  // 1. Search Sequential - Optimized to prevent UI blocking
   const handleSearchSequential = async (params) => {
     setSedangMemuat(true);
     try {
@@ -95,7 +100,7 @@ function App() {
     }
   };
 
-  // 3. Sort Sequential - DIOPTIMALKAN untuk mencegah blocking UI dengan algoritma yielding
+  // 3. Sort Sequential - Optimized to prevent UI blocking
   const handleSortSequential = async (params) => {
     setSedangMemuat(true);
     try {
@@ -143,6 +148,47 @@ function App() {
     }
   };
 
+  // 5. Smart Processing - Automatically chooses best method
+  const handleSmartSort = async (params) => {
+    setSedangMemuat(true);
+    try {
+      const result = await smartSort(mahasiswa, params);
+      
+      setHasil(prevHasil => ({
+        ...prevHasil,
+        sort: {
+          ...prevHasil.sort,
+          smart: { result: result.result, time: result.time },
+          operation: 'sort'
+        }
+      }));
+    } catch (error) {
+      console.error('Error in smart sort:', error);
+    } finally {
+      setSedangMemuat(false);
+    }
+  };
+
+  const handleSmartSearch = async (params) => {
+    setSedangMemuat(true);
+    try {
+      const result = await smartSearch(mahasiswa, params);
+      
+      setHasil(prevHasil => ({
+        ...prevHasil,
+        search: {
+          ...prevHasil.search,
+          smart: { result: result.result, time: result.time },
+          operation: 'search'
+        }
+      }));
+    } catch (error) {
+      console.error('Error in smart search:', error);
+    } finally {
+      setSedangMemuat(false);
+    }
+  };
+
   const handleProsesData = async (operasi, params, type) => {
     if (type === 'sequential') {
       if (operasi === 'sort') {
@@ -156,23 +202,30 @@ function App() {
       } else if (operasi === 'search') {
         await handleSearchParallel(params);
       }
+    } else if (type === 'smart') {
+      // Use smart processing that automatically chooses the best method
+      if (operasi === 'sort') {
+        await handleSmartSort(params);
+      } else if (operasi === 'search') {
+        await handleSmartSearch(params);
+      }
     } else {
       // Default: run both sequential and parallel for comparison (existing behavior)
       setSedangMemuat(true);
       try {
         let hasilSeq, hasilPar;
 
-        // Pemrosesan berurutan
+        // Sequential processing
         const seqStartTime = performance.now();
         if (operasi === 'sort') {
-          hasilSeq = sequentialSort([...mahasiswa], params);
+          hasilSeq = await sequentialSortAsync([...mahasiswa], params);
         } else if (operasi === 'search') {
-          hasilSeq = sequentialSearch(mahasiswa, params);
+          hasilSeq = await sequentialSearchAsync(mahasiswa, params);
         }
         const seqEndTime = performance.now();
         const waktuSeq = seqEndTime - seqStartTime;
 
-        // Pemrosesan paralel
+        // Parallel processing
         const parStartTime = performance.now();
         if (operasi === 'sort') {
           hasilPar = await parallelWorkerSort(mahasiswa, params);
@@ -213,13 +266,17 @@ function App() {
           </button>
         </div>
         
+        <SystemInfo />
+        
         <Controls 
           onGenerate={handleGenerateData} 
           onProcess={handleProsesData}
           onSortSequential={handleSortSequential}
           onSortParallel={handleSortParallel}
+          onSortSmart={handleSmartSort}
           onSearchSequential={handleSearchSequential}
           onSearchParallel={handleSearchParallel}
+          onSearchSmart={handleSmartSearch}
           isLoading={sedangMemuat}
         />
         
@@ -240,10 +297,11 @@ function App() {
                 <ResultPanel 
                   seqTime={hasil.sort.sequential?.time || null}
                   parTime={hasil.sort.parallel?.time || null}
+                  smartTime={hasil.sort.smart?.time || null}
                   operation={hasil.sort.operation}
                 />
                 <DataTable 
-                  data={hasil.sort.sequential?.result || hasil.sort.parallel?.result || []} 
+                  data={hasil.sort.sequential?.result || hasil.sort.parallel?.result || hasil.sort.smart?.result || []} 
                   title="Hasil Pengurutan" 
                 />
               </div>
@@ -255,10 +313,11 @@ function App() {
                 <ResultPanel 
                   seqTime={hasil.search.sequential?.time || null}
                   parTime={hasil.search.parallel?.time || null}
+                  smartTime={hasil.search.smart?.time || null}
                   operation={hasil.search.operation}
                 />
                 <DataTable 
-                  data={hasil.search.sequential?.result || hasil.search.parallel?.result || []} 
+                  data={hasil.search.sequential?.result || hasil.search.parallel?.result || hasil.search.smart?.result || []} 
                   title="Hasil Pencarian" 
                 />
               </div>

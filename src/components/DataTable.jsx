@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 
 const DataTable = ({ data, title }) => {
   if (!data || data.length === 0) {
@@ -6,15 +6,22 @@ const DataTable = ({ data, title }) => {
   }
 
   // Jika ini hasil pencarian, datanya mungkin dibungkus dalam objek
-  const displayData = Array.isArray(data) ? data : (data?.result || []);
-  const itemPerHalaman = 50;
+  const displayData = useMemo(() => Array.isArray(data) ? data : (data?.result || []), [data]);
+  
+  // Optimasi untuk dataset besar: batasi item per halaman berdasarkan ukuran dataset
+  const itemPerHalaman = useMemo(() => {
+    if (displayData.length > 10000) return 100; // Untuk dataset besar, tampilkan lebih banyak per halaman
+    if (displayData.length > 1000) return 50;
+    return 25; // Untuk dataset kecil, tampilkan lebih sedikit per halaman
+  }, [displayData.length]);
+  
   const [halamanSaatIni, setHalamanSaatIni] = useState(1);
 
   // Hitung nilai pagination
-  const totalHalaman = Math.ceil(displayData.length / itemPerHalaman);
-  const indeksAwal = (halamanSaatIni - 1) * itemPerHalaman;
-  const indeksAkhir = Math.min(indeksAwal + itemPerHalaman, displayData.length);
-  const dataSaatIni = displayData.slice(indeksAwal, indeksAkhir);
+  const totalHalaman = useMemo(() => Math.ceil(displayData.length / itemPerHalaman), [displayData.length, itemPerHalaman]);
+  const indeksAwal = useMemo(() => (halamanSaatIni - 1) * itemPerHalaman, [halamanSaatIni, itemPerHalaman]);
+  const indeksAkhir = useMemo(() => Math.min(indeksAwal + itemPerHalaman, displayData.length), [indeksAwal, itemPerHalaman, displayData.length]);
+  const dataSaatIni = useMemo(() => displayData.slice(indeksAwal, indeksAkhir), [displayData, indeksAwal, indeksAkhir]);
 
   // Tangani perubahan halaman
   const handleUbahHalaman = (halaman) => {
@@ -37,6 +44,9 @@ const DataTable = ({ data, title }) => {
     }
   };
 
+  // Informasi khusus untuk dataset besar
+  const isBigDataset = displayData.length > 10000;
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -46,11 +56,16 @@ const DataTable = ({ data, title }) => {
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
           Menampilkan {indeksAwal + 1}-{indeksAkhir} dari {displayData.length} data
         </p>
+        {isBigDataset && (
+          <p className="text-xs text-blue-500 dark:text-blue-400 mt-1 italic">
+            Dataset besar terdeteksi - gunakan pagination untuk navigasi efisien
+          </p>
+        )}
       </div>
       
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0 z-10">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                 No
@@ -68,7 +83,7 @@ const DataTable = ({ data, title }) => {
               const indeksGlobal = indeksAwal + index;
               return (
                 <tr 
-                  key={mahasiswa.id || indeksGlobal} 
+                  key={mahasiswa.id !== undefined ? mahasiswa.id : indeksGlobal} 
                   className={indeksGlobal % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-900'}
                 >
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -92,6 +107,10 @@ const DataTable = ({ data, title }) => {
         <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600 flex flex-col sm:flex-row items-center justify-between">
           <div className="text-sm text-gray-700 dark:text-gray-300 mb-4 sm:mb-0">
             Halaman <span className="font-medium">{halamanSaatIni}</span> dari <span className="font-medium">{totalHalaman}</span>
+            <span className="mx-2">•</span>
+            <span className="text-xs">
+              {itemPerHalaman} item/hal
+            </span>
           </div>
           
           <div className="flex items-center space-x-2">
